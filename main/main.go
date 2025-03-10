@@ -151,14 +151,16 @@ func deleteFromConfig(path string, packageName string) {
         return
     }
 
-    switch {
-    case config.Scope == nil:
+    if config.Scope == nil {
         fmt.Printf("配置文件 %s 中没有scope部分\n", path)
         return
-    case _, exists := config.Scope[packageName]; !exists:
+    }
+    
+    if _, exists := config.Scope[packageName]; !exists {
         fmt.Printf("包名 '%s' 不在配置 %s 中\n", packageName, path)
         return
     }
+    
     delete(config.Scope, packageName)
 
     updatedData, err := json.MarshalIndent(config, "", "  ")
