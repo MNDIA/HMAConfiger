@@ -1,0 +1,89 @@
+name: Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+    paths:
+      - "**/*.go"
+      - "go.mod"
+      - ".github/workflows/*.yml"
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - "**/*.go"
+      - "go.mod"
+      - ".github/workflows/*.yml"
+
+jobs:
+  build:
+    permissions:
+      contents: write
+    strategy:
+      matrix:
+        include:
+          - goos: android
+            goarch: arm64
+            cc: aarch64-linux-android35-clang
+            cxx: aarch64-linux-android35-clang++
+      fail-fast: false
+
+    runs-on: ubuntu-latest
+    env:
+      GOOS: ${{ matrix.goos }}
+      GOARCH: ${{ matrix.goarch }}
+      CGO_ENABLED: 1
+    steps:
+      - name: Checkout codebase
+        uses: actions/checkout@v4
+
+      - name: Set up NDK
+        id: setup-ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r27
+
+      - name: Show workflow information
+        run: |
+          export _NAME=$(jq ".[\"$GOOS-$GOARCH\"].friendlyName" -r < .github/build/friendly-filenames.json)
+          export _CC=${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/${{ matrix.cc }}
+          export _CXX=${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/${{ matrix.cxx }}
+          echo "GOOS: $GOOS, GOARCH: $GOARCH, CC: $_CC, CXX: $_CXX, RELEASE_NAME: $_NAME"
+          echo "CC=$_CC" >> $GITHUB_ENV
+          echo "CXX=$_CXX" >> $GITHUB_ENV
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          check-latest: true
+
+      - name: Get project dependencies
+        run: go get ./main
+
+      - name: Build HMAConfiger
+        run: |
+          mkdir -p build_assets
+          go build -v -o build_assets/hmaconfiger -trimpath -ldflags "-s -w -buildid=" ./main
+
+      - name: Upload files to Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: HMAConfiger
+          path: |
+            build_assets/hmaconfiger
+
+      - name: Upload release
+        if: success() && !cancelled()
+        uses: ncipollo/release-action@v1.14.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          name: hmaconfiger
+          tag: hmaconfiger
+          body: This release is built by github-action.
+          artifacts: build_assets/hmaconfiger
+          allowUpdates: true
+          makeLatest: true
+          omitBodyDuringUpdate: true
+          replacesArtifacts: true
